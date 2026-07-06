@@ -199,6 +199,8 @@ mvn -f trading-engine/pom.xml test
 - `AssetServiceTest` —— 各类转账/冻结/解冻，并校验**系统资产守恒**（总额恒为 0）
 - `MatchEngineTest` —— 价格优先/时间优先、跨档撮合、以 maker 价成交、订单簿聚合
 - `TradingEngineServiceTest` —— 端到端：充值 → 下单 → 撮合 → 清算 → 撤单，校验资产变化与守恒
+- `MessagingRoundTripIntegrationTest` —— 用**内嵌 Kafka**（纯 JVM，无需 Docker）验证完整消息链路：
+  事件 JSON 序列化 → Kafka → 消费 → 按 `@class` 多态反序列化回具体子类型 → 引擎处理，结果正确且守恒
 
 ---
 

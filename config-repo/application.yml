@@ -1,0 +1,22 @@
+# 所有应用的全局默认配置。
+# 敏感信息 (如数据库口令) 通过各应用自身的环境变量注入，Config Server 不做替换。
+
+spring:
+  jackson:
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+
+logging:
+  level:
+    root: INFO
+    com.itranswarp.exchange: INFO
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "health,info,metrics"
+  endpoint:
+    health:
+      show-details: never

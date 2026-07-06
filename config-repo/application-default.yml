@@ -1,0 +1,4 @@
+# default profile (本地开发) 的全局默认配置。
+logging:
+  level:
+    com.itranswarp.exchange: DEBUG

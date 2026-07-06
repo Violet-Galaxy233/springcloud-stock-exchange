@@ -1,0 +1,11 @@
+spring:
+  application:
+    # 设置 app 名称，Config Server 据此返回配置:
+    name: ui
+  config:
+    # 导入 Config Server 地址:
+    import: configserver:${CONFIG_SERVER:http://localhost:8888}
+
+# Pebble 模板引擎: 模板位于 templates/*.html
+pebble:
+  suffix: .html

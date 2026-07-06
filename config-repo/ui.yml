@@ -1,0 +1,9 @@
+# 用户 Web 界面配置
+server:
+  port: ${APP_PORT:8000}
+
+exchange:
+  # 后端交易 API 地址
+  api-endpoint: ${API_ENDPOINT:http://localhost:8001}
+  # 推送服务的 WebSocket 地址 (浏览器直连)
+  push-endpoint: ${PUSH_ENDPOINT:ws://localhost:8005/notification}

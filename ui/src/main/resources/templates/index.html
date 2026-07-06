@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Warp Exchange</title>
+    <style>
+        :root {
+            --bg: #0e1116;
+            --panel: #161b22;
+            --border: #2a313c;
+            --text: #e6edf3;
+            --muted: #8b949e;
+            --green: #26a69a;
+            --red: #ef5350;
+            --accent: #f0b90b;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            font-size: 14px;
+        }
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 20px;
+            border-bottom: 1px solid var(--border);
+            background: var(--panel);
+        }
+        header h1 { font-size: 18px; margin: 0; }
+        header h1 .dot { color: var(--accent); }
+        .num { font-family: "SF Mono", "Consolas", "Menlo", monospace; }
+        .muted { color: var(--muted); }
+        .status { font-size: 12px; color: var(--muted); }
+        .status.err { color: var(--red); }
+        button {
+            cursor: pointer;
+            border: 1px solid var(--border);
+            background: #21262d;
+            color: var(--text);
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 14px;
+        }
+        button:hover { border-color: #3d444d; }
+        button.buy { background: var(--green); border-color: var(--green); color: #fff; }
+        button.sell { background: var(--red); border-color: var(--red); color: #fff; }
+        button.link { background: none; border: none; color: var(--accent); padding: 2px 4px; }
+        input {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: #0d1117;
+            color: var(--text);
+            font-size: 14px;
+        }
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 16px;
+        }
+        .panel h2 {
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--muted);
+            margin: 0 0 12px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 320px 1fr 1fr;
+            gap: 16px;
+            padding: 16px 20px;
+            align-items: start;
+        }
+        @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+        .field { margin-bottom: 10px; }
+        .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+        .row { display: flex; gap: 8px; }
+        .row > * { flex: 1; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { text-align: right; padding: 4px 6px; font-size: 13px; }
+        th { color: var(--muted); font-weight: 500; }
+        td.left, th.left { text-align: left; }
+        .book-row td { padding: 2px 6px; }
+        .ask { color: var(--red); }
+        .bid { color: var(--green); }
+        .last-price { text-align: center; font-size: 18px; padding: 8px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); margin: 6px 0; }
+        .hidden { display: none; }
+        .events { list-style: none; margin: 0; padding: 0; max-height: 140px; overflow-y: auto; font-size: 12px; }
+        .events li { padding: 3px 0; border-bottom: 1px solid var(--border); color: var(--muted); }
+        .balances { display: flex; gap: 24px; }
+        .balances .asset { flex: 1; }
+        .balances .asset .big { font-size: 20px; }
+        .spacer { height: 8px; }
+        .who { font-size: 12px; color: var(--muted); }
+    </style>
+</head>
+<body>
+    <header>
+        <h1><span class="dot">&#9670;</span> Warp Exchange <span class="muted num">BTC/USD</span></h1>
+        <div>
+            <span id="who" class="who"></span>
+            <button id="logoutBtn" class="hidden" onclick="logout()">Sign out</button>
+        </div>
+    </header>
+
+    <!-- 未登录: 登录 / 注册面板 -->
+    <div id="authView" class="grid" style="grid-template-columns: 400px;">
+        <div class="panel">
+            <h2>Sign in / Sign up</h2>
+            <div class="field">
+                <label>Email</label>
+                <input id="email" type="email" value="demo@warp.exchange" autocomplete="off">
+            </div>
+            <div class="field">
+                <label>Password</label>
+                <input id="password" type="password" value="password">
+            </div>
+            <div class="field">
+                <label>Name (sign up only)</label>
+                <input id="name" type="text" value="Demo Trader">
+            </div>
+            <div class="row">
+                <button onclick="signin()">Sign in</button>
+                <button onclick="signup()">Sign up</button>
+            </div>
+            <div class="spacer"></div>
+            <div id="authStatus" class="status"></div>
+        </div>
+    </div>
+
+    <!-- 已登录: 交易主界面 -->
+    <div id="tradeView" class="grid hidden">
+        <!-- 左列: 资产 + 充值 + 下单 -->
+        <div>
+            <div class="panel">
+                <h2>Balances</h2>
+                <div class="balances">
+                    <div class="asset">
+                        <div class="muted">USD</div>
+                        <div class="big num" id="usdAvail">-</div>
+                        <div class="muted num" id="usdFrozen">frozen -</div>
+                    </div>
+                    <div class="asset">
+                        <div class="muted">BTC</div>
+                        <div class="big num" id="btcAvail">-</div>
+                        <div class="muted num" id="btcFrozen">frozen -</div>
+                    </div>
+                </div>
+                <div class="spacer"></div>
+                <div class="muted" style="font-size:12px;margin-bottom:6px;">Deposit (demo)</div>
+                <div class="row">
+                    <button onclick="deposit('USD','10000')">+10000 USD</button>
+                    <button onclick="deposit('BTC','1')">+1 BTC</button>
+                </div>
+            </div>
+
+            <div class="spacer"></div>
+
+            <div class="panel">
+                <h2>Place order</h2>
+                <div class="field">
+                    <label>Price (USD)</label>
+                    <input id="price" class="num" type="text" value="50000">
+                </div>
+                <div class="field">
+                    <label>Quantity (BTC)</label>
+                    <input id="quantity" class="num" type="text" value="0.1">
+                </div>
+                <div class="row">
+                    <button class="buy" onclick="placeOrder('BUY')">Buy</button>
+                    <button class="sell" onclick="placeOrder('SELL')">Sell</button>
+                </div>
+                <div class="spacer"></div>
+                <div id="orderStatus" class="status"></div>
+            </div>
+        </div>
+
+        <!-- 中列: 订单簿 -->
+        <div class="panel">
+            <h2>Order book</h2>
+            <table>
+                <thead>
+                    <tr><th class="left">Price (USD)</th><th>Amount (BTC)</th></tr>
+                </thead>
+                <tbody id="asks"></tbody>
+            </table>
+            <div class="last-price num" id="lastPrice">-</div>
+            <table>
+                <tbody id="bids"></tbody>
+            </table>
+        </div>
+
+        <!-- 右列: 活动订单 + 事件 -->
+        <div>
+            <div class="panel">
+                <h2>Active orders</h2>
+                <table>
+                    <thead>
+                        <tr><th class="left">Side</th><th>Price</th><th>Amount</th><th>Unfilled</th><th></th></tr>
+                    </thead>
+                    <tbody id="orders"></tbody>
+                </table>
+                <div id="ordersEmpty" class="muted" style="font-size:12px;">No active orders.</div>
+            </div>
+
+            <div class="spacer"></div>
+
+            <div class="panel">
+                <h2>Recent events</h2>
+                <ul id="events" class="events"></ul>
+            </div>
+        </div>
+    </div>
+
+    <div style="padding: 4px 20px;">
+        <span id="globalStatus" class="status"></span>
+    </div>
+
+    <script>
+        // 后端地址由 Pebble 模板注入
+        const API = '{{ apiEndpoint }}';
+        const PUSH = '{{ pushEndpoint }}';
+
+        let token = localStorage.getItem('warp.token') || null;
+        let userId = localStorage.getItem('warp.userId') || null;
+        let ws = null;
+        let timers = [];
+
+        // ---- 工具函数 ----
+        function el(id) { return document.getElementById(id); }
+        function fmt(v) {
+            if (v === undefined || v === null || v === '') return '-';
+            const n = Number(v);
+            return isNaN(n) ? v : n.toLocaleString('en-US', { maximumFractionDigits: 8 });
+        }
+        function setStatus(id, msg, isErr) {
+            const e = el(id);
+            if (!e) return;
+            e.textContent = msg || '';
+            e.className = 'status' + (isErr ? ' err' : '');
+        }
+
+        async function api(path, opts) {
+            opts = opts || {};
+            const headers = opts.headers || {};
+            if (opts.body) headers['Content-Type'] = 'application/json';
+            if (opts.auth && token) headers['Authorization'] = 'Bearer ' + token;
+            const resp = await fetch(API + path, {
+                method: opts.method || 'GET',
+                headers: headers,
+                body: opts.body ? JSON.stringify(opts.body) : undefined
+            });
+            if (!resp.ok) {
+                let detail = resp.status + ' ' + resp.statusText;
+                try { const j = await resp.json(); if (j && j.message) detail = j.message; } catch (e) {}
+                throw new Error(detail);
+            }
+            const text = await resp.text();
+            return text ? JSON.parse(text) : {};
+        }
+
+        // ---- 认证 ----
+        async function signup() {
+            setStatus('authStatus', 'Signing up...');
+            try {
+                const body = { email: el('email').value, password: el('password').value, name: el('name').value };
+                const r = await api('/api/auth/signup', { method: 'POST', body });
+                setStatus('authStatus', 'Signed up (userId ' + r.userId + '). Now sign in.');
+            } catch (e) {
+                setStatus('authStatus', 'Sign up failed: ' + e.message, true);
+            }
+        }
+
+        async function signin() {
+            setStatus('authStatus', 'Signing in...');
+            try {
+                const body = { email: el('email').value, password: el('password').value };
+                const r = await api('/api/auth/signin', { method: 'POST', body });
+                token = r.token;
+                userId = String(r.userId);
+                localStorage.setItem('warp.token', token);
+                localStorage.setItem('warp.userId', userId);
+                showTrade();
+            } catch (e) {
+                setStatus('authStatus', 'Sign in failed: ' + e.message, true);
+            }
+        }
+
+        function logout() {
+            token = null;
+            userId = null;
+            localStorage.removeItem('warp.token');
+            localStorage.removeItem('warp.userId');
+            stopPolling();
+            if (ws) { try { ws.close(); } catch (e) {} ws = null; }
+            el('tradeView').classList.add('hidden');
+            el('authView').classList.remove('hidden');
+            el('logoutBtn').classList.add('hidden');
+            el('who').textContent = '';
+        }
+
+        // ---- 充值 (demo) ----
+        async function deposit(asset, amount) {
+            setStatus('globalStatus', 'Depositing ' + amount + ' ' + asset + '...');
+            try {
+                await api('/api/transfer', { method: 'POST', auth: true, body: { asset, amount } });
+                setStatus('globalStatus', 'Deposited ' + amount + ' ' + asset + '.');
+                refreshAssets();
+            } catch (e) {
+                setStatus('globalStatus', 'Deposit failed: ' + e.message, true);
+            }
+        }
+
+        // ---- 下单 / 撤单 ----
+        async function placeOrder(direction) {
+            setStatus('orderStatus', 'Submitting ' + direction + ' order...');
+            try {
+                const body = { direction, price: el('price').value, quantity: el('quantity').value };
+                await api('/api/orders', { method: 'POST', auth: true, body });
+                setStatus('orderStatus', direction + ' order accepted.');
+                refreshOrders();
+                refreshAssets();
+            } catch (e) {
+                setStatus('orderStatus', 'Order failed: ' + e.message, true);
+            }
+        }
+
+        async function cancelOrder(id) {
+            setStatus('globalStatus', 'Cancelling order ' + id + '...');
+            try {
+                await api('/api/orders/' + id + '/cancel', { method: 'POST', auth: true });
+                setStatus('globalStatus', 'Order ' + id + ' cancelled.');
+                refreshOrders();
+                refreshAssets();
+            } catch (e) {
+                setStatus('globalStatus', 'Cancel failed: ' + e.message, true);
+            }
+        }
+
+        // ---- 轮询刷新 ----
+        async function refreshAssets() {
+            try {
+                const a = await api('/api/assets', { auth: true });
+                const usd = a.USD || {}, btc = a.BTC || {};
+                el('usdAvail').textContent = fmt(usd.available);
+                el('usdFrozen').textContent = 'frozen ' + fmt(usd.frozen);
+                el('btcAvail').textContent = fmt(btc.available);
+                el('btcFrozen').textContent = 'frozen ' + fmt(btc.frozen);
+            } catch (e) {
+                setStatus('globalStatus', 'Assets error: ' + e.message, true);
+            }
+        }
+
+        async function refreshOrderBook() {
+            try {
+                const b = await api('/api/orderBook');
+                const asks = (b.sell || []).slice().reverse();
+                const bids = (b.buy || []);
+                el('asks').innerHTML = asks.map(r =>
+                    '<tr class="book-row"><td class="left ask num">' + fmt(r.price) + '</td><td class="num">' + fmt(r.quantity) + '</td></tr>'
+                ).join('') || '<tr><td class="left muted" colspan="2">no asks</td></tr>';
+                el('bids').innerHTML = bids.map(r =>
+                    '<tr class="book-row"><td class="left bid num">' + fmt(r.price) + '</td><td class="num">' + fmt(r.quantity) + '</td></tr>'
+                ).join('') || '<tr><td class="left muted" colspan="2">no bids</td></tr>';
+                el('lastPrice').textContent = fmt(b.price);
+            } catch (e) {
+                setStatus('globalStatus', 'Order book error: ' + e.message, true);
+            }
+        }
+
+        async function refreshOrders() {
+            try {
+                const list = await api('/api/orders', { auth: true });
+                const rows = (list || []).map(o => {
+                    const side = o.direction === 'BUY'
+                        ? '<span class="bid">BUY</span>'
+                        : '<span class="ask">SELL</span>';
+                    return '<tr><td class="left">' + side + '</td>' +
+                        '<td class="num">' + fmt(o.price) + '</td>' +
+                        '<td class="num">' + fmt(o.quantity) + '</td>' +
+                        '<td class="num">' + fmt(o.unfilledQuantity) + '</td>' +
+                        '<td><button class="link" onclick="cancelOrder(\'' + o.id + '\')">Cancel</button></td></tr>';
+                }).join('');
+                el('orders').innerHTML = rows;
+                el('ordersEmpty').style.display = rows ? 'none' : 'block';
+            } catch (e) {
+                setStatus('globalStatus', 'Orders error: ' + e.message, true);
+            }
+        }
+
+        function stopPolling() {
+            timers.forEach(t => clearInterval(t));
+            timers = [];
+        }
+
+        function startPolling() {
+            stopPolling();
+            refreshAssets(); refreshOrderBook(); refreshOrders();
+            timers.push(setInterval(refreshAssets, 2000));
+            timers.push(setInterval(refreshOrderBook, 2000));
+            timers.push(setInterval(refreshOrders, 2000));
+        }
+
+        // ---- 推送 WebSocket (best-effort) ----
+        function pushEvent(msg) {
+            const ul = el('events');
+            const li = document.createElement('li');
+            const ts = new Date().toLocaleTimeString();
+            li.textContent = ts + '  ' + msg;
+            ul.insertBefore(li, ul.firstChild);
+            while (ul.children.length > 30) ul.removeChild(ul.lastChild);
+        }
+
+        function connectPush() {
+            if (!userId) return;
+            try {
+                ws = new WebSocket(PUSH + '?token=' + encodeURIComponent(userId));
+                ws.onopen = () => pushEvent('Connected to push service.');
+                ws.onmessage = (ev) => {
+                    try {
+                        const m = JSON.parse(ev.data);
+                        pushEvent('[' + (m.type || 'event') + '] ' + JSON.stringify(m.data || {}));
+                        // 收到通知立即刷新
+                        refreshAssets(); refreshOrders();
+                    } catch (e) {
+                        pushEvent(ev.data);
+                    }
+                };
+                ws.onerror = () => pushEvent('Push connection error (polling still active).');
+                ws.onclose = () => pushEvent('Push connection closed.');
+            } catch (e) {
+                pushEvent('Push unavailable: ' + e.message);
+            }
+        }
+
+        // ---- 视图切换 ----
+        function showTrade() {
+            el('authView').classList.add('hidden');
+            el('tradeView').classList.remove('hidden');
+            el('logoutBtn').classList.remove('hidden');
+            el('who').textContent = 'userId ' + userId;
+            startPolling();
+            connectPush();
+        }
+
+        // ---- 启动 ----
+        if (token && userId) {
+            showTrade();
+        } else {
+            // 未登录也展示公共订单簿
+            refreshOrderBook();
+        }
+    </script>
+</body>
+</html>

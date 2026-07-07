@@ -106,6 +106,13 @@ Config Server 以 native 模式从 `config-repo/` 读取配置。每个应用启
 `{name}-{profile}.yml → application-{profile}.yml → {name}.yml → application.yml` 的优先级合并配置。
 敏感信息（如数据库口令）通过**应用自身的环境变量**注入，Config Server 不做替换。
 
+### 6. 进阶特性
+
+- **JWT 认证** —— 登录/注册签发 HS256 签名的 JWT（含 `exp` 过期），API 网关侧过滤器校验签名与有效期后取出用户 ID；密钥与有效期由配置注入。
+- **引擎故障恢复** —— 交易引擎启动时先按 `sequenceId` 升序重放 `events` 表中的历史事件重建内存状态，再开始消费 Kafka 新事件；重放期间的输出副作用全部丢弃。得益于确定性状态机特性，重放即可精确恢复。
+- **实时 K 线** —— UI 用原生 Canvas 绘制蜡烛图，直连行情服务拉取秒/分/时/日 K 线，无任何前端第三方库。
+- **持续集成** —— GitHub Actions 在每次 push / PR 跑全量构建与测试。
+
 ---
 
 ## 技术栈
@@ -116,8 +123,9 @@ Config Server 以 native 模式从 `config-repo/` 读取配置。每个应用启
 - Redis（订单簿快照、行情缓存、推送 Pub/Sub）
 - MySQL 8 + Spring Data JPA（订单、成交、K 线、用户等持久化）
 - Spring WebSocket（实时推送）
-- Pebble（服务端模板）
-- Maven 多模块 · JUnit 5
+- JWT（jjwt，HS256 签名的认证 token）
+- Pebble（服务端模板）+ 原生 Canvas 蜡烛图（零前端依赖）
+- Maven 多模块 · JUnit 5 · GitHub Actions CI
 
 > 说明：教程原文基于 Spring Boot 3.0 / Java 17，本项目升级到 Spring Boot 3.2 以兼容 JDK 21 构建；
 > 中间件用官方 `confluentinc/cp-kafka` + `redis` + `mysql` 镜像，行为一致。
@@ -169,7 +177,7 @@ docker compose down            # 加 -v 可清空数据卷
 
 ## REST API
 
-认证：登录返回的 `token`（演示中即 userId）通过 `Authorization: Bearer <token>` 携带。
+认证：登录/注册返回 **JWT** `token`，通过 `Authorization: Bearer <token>` 携带（服务端校验签名与过期）。
 
 | 方法 | 路径 | 认证 | 说明 |
 |------|------|:----:|------|
@@ -201,6 +209,12 @@ mvn -f trading-engine/pom.xml test
 - `TradingEngineServiceTest` —— 端到端：充值 → 下单 → 撮合 → 清算 → 撤单，校验资产变化与守恒
 - `MessagingRoundTripIntegrationTest` —— 用**内嵌 Kafka**（纯 JVM，无需 Docker）验证完整消息链路：
   事件 JSON 序列化 → Kafka → 消费 → 按 `@class` 多态反序列化回具体子类型 → 引擎处理，结果正确且守恒
+- `EngineRecoveryTest` —— **故障恢复**：从持久化事件序列重放，精确重建到与在线处理完全一致的状态
+
+> CI：GitHub Actions 工作流在每次 push / PR 上以 JDK 17 运行 `mvn -f build/pom.xml verify`，
+> 上述测试全部在 CI 中执行（无需外部中间件）。工作流文件位于 `ci/github-actions-ci.yml`，
+> 执行 `git mv ci/github-actions-ci.yml .github/workflows/ci.yml` 并提交即可启用
+> （当前提交令牌无 `workflow` 权限，故未直接放入该目录）。
 
 ---
 

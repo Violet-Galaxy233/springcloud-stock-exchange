@@ -11,7 +11,7 @@ import com.itranswarp.exchange.config.MessagingConfiguration;
  * 定序服务入口。
  */
 @SpringBootApplication
-@EntityScan("com.itranswarp.exchange.tradingsequencer")
+@EntityScan("com.itranswarp.exchange.model")
 @Import(MessagingConfiguration.class)
 public class TradingSequencerApplication {
 

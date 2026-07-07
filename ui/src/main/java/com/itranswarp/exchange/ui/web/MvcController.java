@@ -21,6 +21,10 @@ public class MvcController {
     @Value("${exchange.push-endpoint}")
     String pushEndpoint;
 
+    /** 行情服务地址 (浏览器直连拉取 K 线)。 */
+    @Value("${exchange.quotation-endpoint:http://localhost:8004}")
+    String quotationEndpoint;
+
     /**
      * 渲染单页交易界面。
      */
@@ -28,6 +32,7 @@ public class MvcController {
     public String index(Model model) {
         model.addAttribute("apiEndpoint", apiEndpoint);
         model.addAttribute("pushEndpoint", pushEndpoint);
+        model.addAttribute("quotationEndpoint", quotationEndpoint);
         return "index";
     }
 }

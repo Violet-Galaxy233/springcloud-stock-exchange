@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.itranswarp.exchange.message.event.AbstractEvent;
+import com.itranswarp.exchange.model.trade.EventEntity;
 import com.itranswarp.exchange.messaging.MessageConsumer;
 import com.itranswarp.exchange.messaging.MessageProducer;
 import com.itranswarp.exchange.messaging.Messaging;

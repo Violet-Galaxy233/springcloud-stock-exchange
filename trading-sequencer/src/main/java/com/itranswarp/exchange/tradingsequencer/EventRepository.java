@@ -3,6 +3,8 @@ package com.itranswarp.exchange.tradingsequencer;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
+import com.itranswarp.exchange.model.trade.EventEntity;
+
 /**
  * 事件持久化仓库。
  */

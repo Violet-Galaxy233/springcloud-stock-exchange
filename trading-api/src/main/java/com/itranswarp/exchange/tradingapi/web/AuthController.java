@@ -11,6 +11,7 @@ import com.itranswarp.exchange.ApiError;
 import com.itranswarp.exchange.ApiException;
 import com.itranswarp.exchange.model.ui.UserProfileEntity;
 import com.itranswarp.exchange.tradingapi.bean.AuthRequest;
+import com.itranswarp.exchange.tradingapi.user.JwtService;
 import com.itranswarp.exchange.tradingapi.user.UserService;
 
 /**
@@ -24,23 +25,30 @@ import com.itranswarp.exchange.tradingapi.user.UserService;
 public class AuthController {
 
     final UserService userService;
+    final JwtService jwtService;
 
-    public AuthController(UserService userService) {
+    public AuthController(UserService userService, JwtService jwtService) {
         this.userService = userService;
+        this.jwtService = jwtService;
     }
 
     @PostMapping("/signup")
     public Map<String, Object> signup(@RequestBody AuthRequest req) {
         validate(req, true);
         UserProfileEntity profile = this.userService.signup(req.email, req.name, req.password);
-        return Map.of("userId", profile.userId, "name", profile.name, "token", String.valueOf(profile.userId));
+        return authResult(profile);
     }
 
     @PostMapping("/signin")
     public Map<String, Object> signin(@RequestBody AuthRequest req) {
         validate(req, false);
         UserProfileEntity profile = this.userService.signin(req.email, req.password);
-        return Map.of("userId", profile.userId, "name", profile.name, "token", String.valueOf(profile.userId));
+        return authResult(profile);
+    }
+
+    private Map<String, Object> authResult(UserProfileEntity profile) {
+        String token = this.jwtService.createToken(profile.userId, profile.name);
+        return Map.of("userId", profile.userId, "name", profile.name, "token", token);
     }
 
     private void validate(AuthRequest req, boolean requireName) {

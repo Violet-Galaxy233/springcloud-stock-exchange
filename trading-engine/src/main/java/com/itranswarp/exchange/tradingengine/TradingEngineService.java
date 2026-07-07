@@ -13,6 +13,7 @@ import com.itranswarp.exchange.enums.AssetEnum;
 import com.itranswarp.exchange.enums.Direction;
 import com.itranswarp.exchange.enums.MatchType;
 import com.itranswarp.exchange.enums.OrderStatus;
+import com.itranswarp.exchange.message.AbstractMessage;
 import com.itranswarp.exchange.message.NotificationMessage;
 import com.itranswarp.exchange.message.TickMessage;
 import com.itranswarp.exchange.message.event.AbstractEvent;
@@ -24,6 +25,7 @@ import com.itranswarp.exchange.messaging.MessageProducer;
 import com.itranswarp.exchange.messaging.Messaging;
 import com.itranswarp.exchange.messaging.MessagingFactory;
 import com.itranswarp.exchange.model.quotation.TickEntity;
+import com.itranswarp.exchange.model.trade.EventEntity;
 import com.itranswarp.exchange.model.trade.MatchDetailEntity;
 import com.itranswarp.exchange.model.trade.OrderEntity;
 import com.itranswarp.exchange.redis.RedisCache;
@@ -36,6 +38,7 @@ import com.itranswarp.exchange.tradingengine.match.MatchDetailRecord;
 import com.itranswarp.exchange.tradingengine.match.MatchEngine;
 import com.itranswarp.exchange.tradingengine.match.MatchResult;
 import com.itranswarp.exchange.tradingengine.order.OrderService;
+import com.itranswarp.exchange.tradingengine.store.EventReplayRepository;
 import com.itranswarp.exchange.tradingengine.store.StoreService;
 import com.itranswarp.exchange.util.JsonUtil;
 
@@ -64,6 +67,8 @@ public class TradingEngineService extends LoggerSupport {
     private RedisService redisService;
     @Autowired(required = false)
     private StoreService storeService;
+    @Autowired(required = false)
+    private EventReplayRepository eventReplayRepository;
 
     private MessageConsumer tradeConsumer;
     private MessageProducer<TickMessage> tickProducer;
@@ -96,12 +101,52 @@ public class TradingEngineService extends LoggerSupport {
 
     @PostConstruct
     public void init() {
+        // 1) 先从数据库重放历史事件重建内存状态 (故障恢复):
+        recover();
+        // 2) 再开始消费 Kafka 上的新事件:
         if (this.messagingFactory != null) {
             this.tickProducer = this.messagingFactory.createMessageProducer(Messaging.Topic.TICK);
             this.tradeConsumer = this.messagingFactory.createBatchMessageListener(Messaging.Topic.TRADE,
                     "trading-engine", this::processMessages);
             logger.info("trading engine started, consuming TRADE topic...");
         }
+    }
+
+    /**
+     * 启动恢复：按定序 ID 升序重放 events 表中的事件，重建资产/订单/订单簿状态。
+     * <p>
+     * 交易引擎是确定性状态机 —— 对相同事件序列必得相同状态，因此重放即可恢复到宕机前的一致状态。
+     * 重放期间产生的输出 (通知/Tick/持久化) 全部丢弃，避免重复副作用。
+     */
+    public void recover() {
+        if (this.eventReplayRepository == null) {
+            return;
+        }
+        recover(this.eventReplayRepository.findAllByOrderBySequenceIdAsc());
+    }
+
+    /**
+     * 按给定的事件序列重放恢复 (提取为独立方法便于测试)。
+     */
+    public void recover(List<EventEntity> events) {
+        if (events.isEmpty()) {
+            logger.info("no events to recover.");
+            return;
+        }
+        logger.info("recovering {} events...", events.size());
+        for (EventEntity e : events) {
+            AbstractMessage message = JsonUtil.readJson(e.data, AbstractMessage.class);
+            if (message instanceof AbstractEvent event) {
+                processEvent(event);
+            }
+        }
+        // 丢弃重放期间累积的输出缓冲，避免重复发送/持久化:
+        this.orderBuffer.clear();
+        this.matchBuffer.clear();
+        this.tickBuffer.clear();
+        this.notificationBuffer.clear();
+        this.orderBookChanged = false;
+        logger.info("recovery finished, lastSequenceId = {}", this.lastSequenceId);
     }
 
     @PreDestroy

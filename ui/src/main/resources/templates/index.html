@@ -100,6 +100,15 @@
         .balances .asset .big { font-size: 20px; }
         .spacer { height: 8px; }
         .who { font-size: 12px; color: var(--muted); }
+        /* K 线图相关样式 */
+        .chart-panel { grid-column: 1 / -1; }
+        @media (max-width: 900px) { .chart-panel { grid-column: auto; } }
+        .tf-bar { display: flex; gap: 6px; margin-bottom: 10px; }
+        .tf-bar button { padding: 4px 12px; font-size: 13px; }
+        .tf-bar button.active { border-color: var(--accent); color: var(--accent); }
+        .chart-wrap { width: 100%; }
+        #klineChart { width: 100%; height: 260px; display: block; }
+        .chart-meta { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
     </style>
 </head>
 <body>
@@ -218,6 +227,24 @@
                 <ul id="events" class="events"></ul>
             </div>
         </div>
+
+        <!-- 全宽: 价格 K 线图 -->
+        <div class="panel chart-panel">
+            <h2>价格 K 线 / Price Chart</h2>
+            <div class="tf-bar">
+                <button data-tf="sec" onclick="setTimeframe('sec')">秒</button>
+                <button data-tf="min" class="active" onclick="setTimeframe('min')">分</button>
+                <button data-tf="hour" onclick="setTimeframe('hour')">时</button>
+                <button data-tf="day" onclick="setTimeframe('day')">日</button>
+            </div>
+            <div class="chart-wrap">
+                <canvas id="klineChart" width="640" height="260"></canvas>
+            </div>
+            <div class="chart-meta">
+                <span id="chartStatus" class="status"></span>
+                <span id="chartLast" class="num muted"></span>
+            </div>
+        </div>
     </div>
 
     <div style="padding: 4px 20px;">
@@ -228,6 +255,7 @@
         // 后端地址由 Pebble 模板注入
         const API = '{{ apiEndpoint }}';
         const PUSH = '{{ pushEndpoint }}';
+        const QUOTATION = '{{ quotationEndpoint }}';
 
         let token = localStorage.getItem('warp.token') || null;
         let userId = localStorage.getItem('warp.userId') || null;
@@ -396,6 +424,137 @@
             }
         }
 
+        // ---- K 线图 (行情服务) ----
+        let currentTf = 'min';          // 当前时间周期: sec/min/hour/day
+        const MAX_CANDLES = 60;         // 最多绘制的蜡烛数量
+
+        // 切换时间周期: 更新按钮高亮并立即刷新
+        function setTimeframe(tf) {
+            currentTf = tf;
+            document.querySelectorAll('.tf-bar button').forEach(b => {
+                b.classList.toggle('active', b.getAttribute('data-tf') === tf);
+            });
+            refreshKline();
+        }
+
+        // 拉取当前周期的 K 线数据并绘制
+        async function refreshKline() {
+            try {
+                const resp = await fetch(QUOTATION + '/api/quotation/bars/' + currentTf);
+                if (!resp.ok) throw new Error(resp.status + ' ' + resp.statusText);
+                const raw = await resp.json();
+                // 每条 bar: [startTime, open, high, low, close, volume], 数字为字符串
+                const bars = (raw || []).map(b => ({
+                    t: parseFloat(b[0]),
+                    o: parseFloat(b[1]),
+                    h: parseFloat(b[2]),
+                    l: parseFloat(b[3]),
+                    c: parseFloat(b[4]),
+                    v: parseFloat(b[5])
+                }));
+                setStatus('chartStatus', '');
+                drawKline(bars);
+            } catch (e) {
+                // 请求失败时只记录状态, 页面其它功能不受影响
+                setStatus('chartStatus', '行情获取失败: ' + e.message, true);
+            }
+        }
+
+        // 用 2D 上下文在 canvas 上绘制蜡烛图
+        function drawKline(bars) {
+            const canvas = el('klineChart');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+
+            // 依据显示尺寸 + devicePixelRatio 设置画布分辨率, 保证高清不模糊
+            const dpr = window.devicePixelRatio || 1;
+            const cssW = canvas.clientWidth || 640;
+            const cssH = canvas.clientHeight || 260;
+            if (canvas.width !== Math.round(cssW * dpr) || canvas.height !== Math.round(cssH * dpr)) {
+                canvas.width = Math.round(cssW * dpr);
+                canvas.height = Math.round(cssH * dpr);
+            }
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.clearRect(0, 0, cssW, cssH);
+
+            // 只保留最近的 MAX_CANDLES 条 (newest-last)
+            const data = bars.slice(-MAX_CANDLES);
+
+            // 空数据: 居中提示
+            if (data.length === 0) {
+                ctx.fillStyle = '#8b949e';
+                ctx.font = '13px -apple-system, Segoe UI, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('暂无行情数据 / No data yet', cssW / 2, cssH / 2);
+                el('chartLast').textContent = '';
+                return;
+            }
+
+            // 计算价格区间, 上下留少量 padding
+            let min = Infinity, max = -Infinity;
+            data.forEach(d => { if (d.l < min) min = d.l; if (d.h > max) max = d.h; });
+            if (min === max) { min -= 1; max += 1; }
+            const pad = (max - min) * 0.08;
+            min -= pad; max += pad;
+
+            // 绘图区域内边距 (右侧留出价格标签空间)
+            const padL = 8, padR = 56, padT = 10, padB = 16;
+            const plotW = cssW - padL - padR;
+            const plotH = cssH - padT - padB;
+
+            // 价格 -> y 坐标
+            const y = p => padT + (max - p) / (max - min) * plotH;
+
+            // 网格线 + 右侧价格标签
+            ctx.strokeStyle = 'rgba(138,148,158,0.15)';
+            ctx.fillStyle = '#8b949e';
+            ctx.font = '11px "SF Mono", Consolas, Menlo, monospace';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            ctx.lineWidth = 1;
+            const gridLines = 4;
+            for (let i = 0; i <= gridLines; i++) {
+                const price = max - (max - min) * (i / gridLines);
+                const gy = y(price);
+                ctx.beginPath();
+                ctx.moveTo(padL, gy);
+                ctx.lineTo(padL + plotW, gy);
+                ctx.stroke();
+                ctx.fillText(price.toLocaleString('en-US', { maximumFractionDigits: 2 }), padL + plotW + 4, gy);
+            }
+
+            // 每根蜡烛的水平步长与实体宽度
+            const step = plotW / data.length;
+            const bodyW = Math.max(1, Math.min(14, step * 0.6));
+            const up = getComputedStyle(document.documentElement).getPropertyValue('--green').trim() || '#26a69a';
+            const down = getComputedStyle(document.documentElement).getPropertyValue('--red').trim() || '#ef5350';
+
+            data.forEach((d, i) => {
+                const cx = padL + step * (i + 0.5);
+                const color = d.c >= d.o ? up : down;
+                ctx.strokeStyle = color;
+                ctx.fillStyle = color;
+                // 高低影线
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(cx, y(d.h));
+                ctx.lineTo(cx, y(d.l));
+                ctx.stroke();
+                // 开收实体
+                const yo = y(d.o), yc = y(d.c);
+                const top = Math.min(yo, yc);
+                const hgt = Math.max(1, Math.abs(yc - yo));
+                ctx.fillRect(cx - bodyW / 2, top, bodyW, hgt);
+            });
+
+            // 最新价格展示
+            const last = data[data.length - 1];
+            const lastColor = last.c >= last.o ? up : down;
+            el('chartLast').textContent = '最新 ' + last.c.toLocaleString('en-US', { maximumFractionDigits: 2 });
+            el('chartLast').style.color = lastColor;
+        }
+
         function stopPolling() {
             timers.forEach(t => clearInterval(t));
             timers = [];
@@ -403,10 +562,11 @@
 
         function startPolling() {
             stopPolling();
-            refreshAssets(); refreshOrderBook(); refreshOrders();
+            refreshAssets(); refreshOrderBook(); refreshOrders(); refreshKline();
             timers.push(setInterval(refreshAssets, 2000));
             timers.push(setInterval(refreshOrderBook, 2000));
             timers.push(setInterval(refreshOrders, 2000));
+            timers.push(setInterval(refreshKline, 3000));
         }
 
         // ---- 推送 WebSocket (best-effort) ----

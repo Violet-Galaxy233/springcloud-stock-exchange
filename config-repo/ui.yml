@@ -7,3 +7,5 @@ exchange:
   api-endpoint: ${API_ENDPOINT:http://localhost:8001}
   # 推送服务的 WebSocket 地址 (浏览器直连)
   push-endpoint: ${PUSH_ENDPOINT:ws://localhost:8005/notification}
+  # 行情服务地址 (浏览器直连拉取 K 线)
+  quotation-endpoint: ${QUOTATION_ENDPOINT:http://localhost:8004}
